@@ -1,4 +1,4 @@
-#![crate_name = "uu_chmod"]
+#![crate_name = "uu_chgrp"]
 
 /*
  * This file is part of the uutils coreutils package.
@@ -58,8 +58,8 @@ pub fn uumain(args: Vec<String>) -> i32 {
     if matches.opt_present("help") {
         let msg = format!("{name} {version}
 
-Usage: chgrp [OPTION]... GROUP FILE...
-  or:  chgrp [OPTION]... --reference=RFILE FILE...
+Usage: {program} [OPTION]... GROUP FILE...
+  or:  {program} [OPTION]... --reference=RFILE FILE...
 Change the group of each FILE to GROU
 With --reference, change the group of each FILE to that of RFILE.
 
@@ -91,8 +91,8 @@ one takes effect.
       --version  output version information and exit
 
 Examples:
-  chgrp staff /u      Change the group of /u to \"staff\".
-  chgrp -hR staff /u  Change the group of /u and subfiles to \"staff\".",
+  {program} staff /u      Change the group of /u to \"staff\".
+  {program} -hR staff /u  Change the group of /u and subfiles to \"staff\".",
             name = NAME, version = VERSION, program = NAME);
 
         print!("{}", opts.usage(&msg));
