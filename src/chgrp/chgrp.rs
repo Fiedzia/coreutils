@@ -11,24 +11,18 @@
 
 #![allow(unused_variables)]  // only necessary while the TODOs still exist
 
-extern crate aho_corasick;
 extern crate getopts;
 extern crate libc;
 extern crate memchr;
-extern crate regex;
-extern crate regex_syntax;
-extern crate walker;
 
 #[macro_use]
 extern crate uucore;
 
 use getopts::Options;
-use regex::Regex;
-use std::ffi::CString;
 use std::io::{Error, Write};
 use std::mem;
-use std::path::Path;
-use walker::Walker;
+use uucore::c_types::get_group;
+use libc::gid_t;
 
 const NAME: &'static str = "chgrp";
 const VERSION: &'static str = env!("CARGO_PKG_VERSION");
@@ -50,8 +44,7 @@ pub fn uumain(args: Vec<String>) -> i32 {
     opts.optflag("P", "", "do not traverse any symbolic links (default)");
     opts.optflag("", "help", "display this help and exit");
     opts.optflag("", "version", "output version information and exit");
-    // TODO: sanitize input for - at beginning (e.g. chmod -x testfile).  Solution is to add a to -x, making a-x
-    let mut matches = match opts.parse(&args[1..]) {
+    let matches = match opts.parse(&args[1..]) {
         Ok(m) => m,
         Err(f) => { crash!(1, "{}", f) }
     };
@@ -99,46 +92,41 @@ Examples:
         return 0;
     } else if matches.opt_present("version") {
         println!("{} {}", NAME, VERSION);
-    } else if matches.free.is_empty() && matches.opt_present("reference") || matches.free.len() < 2 {
+    } else if matches.free.is_empty() || (matches.opt_present("reference") && matches.free.is_empty() ) || (!matches.opt_present("reference") && matches.free.len() < 2) {
         show_error!("missing an argument");
         show_error!("for help, try '{} --help'", NAME);
         return 1;
     } else {
-        /*
+        
         let changes = matches.opt_present("changes");
         let quiet = matches.opt_present("quiet");
         let verbose = matches.opt_present("verbose");
         let preserve_root = matches.opt_present("preserve-root");
         let recursive = matches.opt_present("recursive");
-        let fmode = matches.opt_str("reference").and_then(|fref| {
-            let mut stat : libc::stat = unsafe { mem::uninitialized() };
-            let statres = unsafe { libc::stat(fref.as_ptr() as *const _, &mut stat as *mut libc::stat) };
-            if statres == 0 {
-                Some(stat.st_mode)
-            } else {
-                crash!(1, "{}", Error::last_os_error())
-            }
-        });
-        let cmode =
-            if fmode.is_none() {
-                let mode = matches.free.remove(0);
-                match verify_mode(&mode[..]) {
-                    Ok(_) => Some(mode),
-                    Err(f) => {
-                        show_error!("{}", f);
-                        return 1;
-                    }
+        let free_first_file_index = if matches.opt_str("reference").is_some() {0} else {1};
+        let gid = match matches.opt_str("reference") {
+            Some(fref) => {
+                let mut stat : libc::stat = unsafe { mem::uninitialized() };
+                //let statres = unsafe { libc::stat(fref.as_ptr() as *const _, &mut stat as *mut libc::stat) };
+                let statres = unsafe { libc::stat(fref.as_str() as *const _, &mut stat as *mut libc::stat) };
+                if statres == 0 {
+                    stat.st_gid
+                } else {
+                    crash!(1, "{}", Error::last_os_error())
                 }
-            } else {
-                None
-            };
-        match chmod(matches.free, changes, quiet, verbose, preserve_root,
-                    recursive, fmode, cmode.as_ref()) {
-            Ok(()) => {}
-            Err(e) => return e
-        }*/
+            },
+            None => {
+                match get_group(matches.free[0].as_ref()) {
+                    Some(grp) => grp.gr_gid,
+                    None => crash!(1, "invalid group: ‘{}’", matches.free[0])
+                }
+            }
+        };
     }
 
     0
 }
 
+
+pub fn chgrp(gid: gid_t){
+}
