@@ -18,7 +18,7 @@ extern crate memchr;
 #[macro_use]
 extern crate uucore;
 
-use getopts::Options;
+use getopts::{Matches, Options};
 use std::io::{Error, Write};
 use std::mem;
 use uucore::c_types::get_group;
@@ -26,6 +26,27 @@ use libc::gid_t;
 
 const NAME: &'static str = "chgrp";
 const VERSION: &'static str = env!("CARGO_PKG_VERSION");
+
+pub enum Verbosity {
+    Quiet,
+    Default,
+    Changes,
+    Verbose,
+}
+
+impl Verbosity {
+    fn from_matches(matches: &Matches) -> Verbosity{
+        if matches.opt_present("quiet") || matches.opt_present("silent")
+            { Verbosity::Quiet }
+        else if matches.opt_present("changes")
+            { Verbosity::Changes }
+        else if matches.opt_present("verbose")
+            { Verbosity::Verbose }
+        else
+            { Verbosity::Default }
+    }
+}
+
 
 pub fn uumain(args: Vec<String>) -> i32 {
     let mut opts = Options::new();
@@ -92,6 +113,7 @@ Examples:
         return 0;
     } else if matches.opt_present("version") {
         println!("{} {}", NAME, VERSION);
+        return 0;
     } else if matches.free.is_empty() || (matches.opt_present("reference") && matches.free.is_empty() ) || (!matches.opt_present("reference") && matches.free.len() < 2) {
         show_error!("missing an argument");
         show_error!("for help, try '{} --help'", NAME);
@@ -102,13 +124,11 @@ Examples:
         let quiet = matches.opt_present("quiet");
         let verbose = matches.opt_present("verbose");
         let preserve_root = matches.opt_present("preserve-root");
-        let recursive = matches.opt_present("recursive");
         let free_first_file_index = if matches.opt_str("reference").is_some() {0} else {1};
         let gid = match matches.opt_str("reference") {
             Some(fref) => {
                 let mut stat : libc::stat = unsafe { mem::uninitialized() };
-                //let statres = unsafe { libc::stat(fref.as_ptr() as *const _, &mut stat as *mut libc::stat) };
-                let statres = unsafe { libc::stat(fref.as_str() as *const _, &mut stat as *mut libc::stat) };
+                let statres = unsafe { libc::stat(fref.as_ptr() as *const _, &mut stat as *mut libc::stat) };
                 if statres == 0 {
                     stat.st_gid
                 } else {
@@ -122,11 +142,31 @@ Examples:
                 }
             }
         };
-    }
-
+        chgrp(
+            gid,
+            matches.opt_present("recursive"),
+            matches.opt_present("dereference"),
+            Verbosity::from_matches(&matches),
+            matches.opt_present("preserve-root"),
+            &matches.free[free_first_file_index..matches.free.len()]
+        );
+    };
     0
 }
 
+pub fn chgrp_file(gid: gid_t, fname: &str) {
 
-pub fn chgrp(gid: gid_t){
+}
+
+pub fn chgrp(
+    gid: gid_t,
+    recursive: bool,
+    dereference_symlinks: bool,
+    verbosity: Verbosity,
+    preserve_root: bool,
+    files: &[String]
+){
+    for file in files{
+    }
+
 }
