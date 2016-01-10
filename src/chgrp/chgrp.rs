@@ -9,25 +9,27 @@
  * file that was distributed with this source code.
  */
 
+//TODO: handle verbosity and dereferencing symbolic links
+
 #![allow(unused_variables)]  // only necessary while the TODOs still exist
+#![feature(convert)]
 
 extern crate getopts;
 extern crate libc;
 extern crate memchr;
-extern crate walker;
+extern crate walkdir;
 
 #[macro_use]
 extern crate uucore;
 
 use getopts::{Matches, Options};
-use std::ffi::CString;
-use std::io::{Error, Write};
+use std::io::{Error, Write, Result};
 use std::mem;
 use std::path::Path;
 use uucore::c_types::get_group;
 use libc::{gid_t, chown};
 
-use walker::Walker;
+use walkdir::WalkDir;
 
 const NAME: &'static str = "chgrp";
 const VERSION: &'static str = env!("CARGO_PKG_VERSION");
@@ -123,92 +125,90 @@ Examples:
         show_error!("missing an argument");
         show_error!("for help, try '{} --help'", NAME);
         return 1;
-    } else {
+    } 
         
-        let changes = matches.opt_present("changes");
-        let quiet = matches.opt_present("quiet");
-        let verbose = matches.opt_present("verbose");
-        let preserve_root = matches.opt_present("preserve-root");
-        let free_first_file_index = if matches.opt_str("reference").is_some() {0} else {1};
-        let gid = match matches.opt_str("reference") {
-            Some(fref) => {
-                let mut stat : libc::stat = unsafe { mem::uninitialized() };
-                let statres = unsafe { libc::stat(fref.as_ptr() as *const _, &mut stat as *mut libc::stat) };
-                if statres == 0 {
-                    stat.st_gid
-                } else {
-                    crash!(1, "{}", Error::last_os_error())
-                }
-            },
-            None => {
-                match get_group(matches.free[0].as_ref()) {
-                    Some(grp) => grp.gr_gid,
-                    None => crash!(1, "invalid group: ‘{}’", matches.free[0])
-                }
+    let changes = matches.opt_present("changes");
+    let quiet = matches.opt_present("quiet");
+    let verbose = matches.opt_present("verbose");
+    let preserve_root = matches.opt_present("preserve-root");
+    let free_first_file_index = if matches.opt_str("reference").is_some() {0} else {1};
+    let gid = match matches.opt_str("reference") {
+        Some(fref) => {
+            let mut stat : libc::stat = unsafe { mem::uninitialized() };
+            let statres = unsafe { libc::stat(fref.as_ptr() as *const _, &mut stat as *mut libc::stat) };
+            if statres == 0 {
+                stat.st_gid
+            } else {
+                crash!(1, "{}", Error::last_os_error())
             }
-        };
-        chgrp(
-            gid,
-            matches.opt_present("recursive"),
-            matches.opt_present("dereference"),
-            Verbosity::from_matches(&matches),
-            matches.opt_present("preserve-root"),
-            &matches.free[free_first_file_index..matches.free.len()]
-        );
+        },
+        None => {
+            match get_group(matches.free[0].as_ref()) {
+                Some(grp) => grp.gr_gid,
+                None => crash!(1, "invalid group: ‘{}’", matches.free[0])
+            }
+        }
     };
-    0
+    chgrp(
+        gid,
+        matches.opt_present("recursive"),
+        matches.opt_present("dereference"),
+        &Verbosity::from_matches(&matches),
+        matches.opt_present("preserve-root"),
+        &matches.free[free_first_file_index..matches.free.len()]
+    )
 }
 
 pub fn chgrp_file(
     gid: gid_t,
-    path: &str,
+    path: &Path,
+    verbosity: &Verbosity,
+    exit_code: &mut i32
+) -> Result<()>{
+    let c_path = path.as_os_str().to_cstring().unwrap();
+    if unsafe { chown(c_path.as_ptr(), !0u32, gid) } == 0 {
+        Ok(())
+    } else {
+        *exit_code = 1;
+        show_error!("{}", Error::last_os_error());
+        Err(Error::last_os_error())
+    }
+}
+
+pub fn do_chgrp(
+    gid: gid_t,
+    path: &Path,
     recursive: bool,
     dereference_symlinks: bool,
-    verbosity: Verbosity,
-    preserve_root: bool
+    verbosity: &Verbosity,
+    preserve_root: bool,
+    exit_code: &mut i32
 ) {
-
-    //let path = Path::new(filename);
-    //if path.exists() {
-    //    chgrp_file(gid, filename)
-    //} else {
-    //    show_error!("cannot access '{}': no such file or directory", filename);
-    //}
     if recursive {
-        let walk_dir = match Walker::new(&Path::new(path)) {
-            Ok(m) => m,
-            Err(f) => {
-                crash!(1, "{}", f.to_string());
-            }
-        };
-        for entry in walk_dir {
-            if entry.is_dir(){
-                chgrp_file(
+        for entry in WalkDir::new(path).follow_links(dereference_symlinks){
+            let entry = entry.unwrap();
+            let entry_path = entry.path();
+            let result = chgrp_file(gid, entry_path, verbosity, exit_code);
+            if entry.path().is_dir() {
+                do_chgrp(
                     gid,
-                    path,
+                    entry_path,
                     recursive,
                     dereference_symlinks,
                     verbosity,
-                    preserve_root
+                    preserve_root,
+                    exit_code
                 )
-
-            } else {
-                let cpath = CString::new(path).unwrap();
-                if unsafe { chown(cpath.as_ptr(), !0u32, gid) } == 0 {
-                    //
-                } else {
-                    show_error!("{}", Error::last_os_error());
-                }
             }
         }
 
     } else {
-        let cpath = CString::new(path).unwrap();
-        if unsafe { chown(cpath.as_ptr(), !0u32, gid) } == 0 {
-            //
-        } else {
-            show_error!("{}", Error::last_os_error());
-        }
+         let result = chgrp_file(
+             gid,
+             path,
+             verbosity,
+             exit_code
+         );
     }
 }
 
@@ -216,19 +216,23 @@ pub fn chgrp(
     gid: gid_t,
     recursive: bool,
     dereference_symlinks: bool,
-    verbosity: Verbosity,
+    verbosity: &Verbosity,
     preserve_root: bool,
     filenames: &[String]
-){
+) -> i32 {
+    let mut exit_code = 0i32;
     for filename in filenames{
-        chgrp_file(
+        let path = Path::new(filename);
+        do_chgrp(
             gid,
-            filename,
+            path,
             recursive,
             dereference_symlinks,
-            verbosity,
-            preserve_root
+            &verbosity,
+            preserve_root,
+            &mut exit_code
         )
-    }
+    };
+    exit_code
 
 }

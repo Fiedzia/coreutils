@@ -15,7 +15,7 @@ memchr = "*"
 regex = "*"
 regex-syntax = "*"
 uucore = { path="../uucore" }
-walker = "*"
+walkdir="0.1.5"
 
 [[bin]]
 name = "chgrp"
