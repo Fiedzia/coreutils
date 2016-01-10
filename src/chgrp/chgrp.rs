@@ -14,6 +14,7 @@
 extern crate getopts;
 extern crate libc;
 extern crate memchr;
+extern crate walker;
 
 #[macro_use]
 extern crate uucore;
@@ -22,8 +23,11 @@ use getopts::{Matches, Options};
 use std::ffi::CString;
 use std::io::{Error, Write};
 use std::mem;
+use std::path::Path;
 use uucore::c_types::get_group;
 use libc::{gid_t, chown};
+
+use walker::Walker;
 
 const NAME: &'static str = "chgrp";
 const VERSION: &'static str = env!("CARGO_PKG_VERSION");
@@ -155,12 +159,56 @@ Examples:
     0
 }
 
-pub fn chgrp_file(gid: gid_t, path: &str) {
-    let cpath = CString::new(path).unwrap();
-    if unsafe { chown(cpath.as_ptr(), !0u32, gid) } == 0 {
-        //
+pub fn chgrp_file(
+    gid: gid_t,
+    path: &str,
+    recursive: bool,
+    dereference_symlinks: bool,
+    verbosity: Verbosity,
+    preserve_root: bool
+) {
+
+    //let path = Path::new(filename);
+    //if path.exists() {
+    //    chgrp_file(gid, filename)
+    //} else {
+    //    show_error!("cannot access '{}': no such file or directory", filename);
+    //}
+    if recursive {
+        let walk_dir = match Walker::new(&Path::new(path)) {
+            Ok(m) => m,
+            Err(f) => {
+                crash!(1, "{}", f.to_string());
+            }
+        };
+        for entry in walk_dir {
+            if entry.is_dir(){
+                chgrp_file(
+                    gid,
+                    path,
+                    recursive,
+                    dereference_symlinks,
+                    verbosity,
+                    preserve_root
+                )
+
+            } else {
+                let cpath = CString::new(path).unwrap();
+                if unsafe { chown(cpath.as_ptr(), !0u32, gid) } == 0 {
+                    //
+                } else {
+                    show_error!("{}", Error::last_os_error());
+                }
+            }
+        }
+
     } else {
-        show_error!("{}", Error::last_os_error());
+        let cpath = CString::new(path).unwrap();
+        if unsafe { chown(cpath.as_ptr(), !0u32, gid) } == 0 {
+            //
+        } else {
+            show_error!("{}", Error::last_os_error());
+        }
     }
 }
 
@@ -170,10 +218,17 @@ pub fn chgrp(
     dereference_symlinks: bool,
     verbosity: Verbosity,
     preserve_root: bool,
-    files: &[String]
+    filenames: &[String]
 ){
-    for file in files{
-        chgrp_file(gid, file)
+    for filename in filenames{
+        chgrp_file(
+            gid,
+            filename,
+            recursive,
+            dereference_symlinks,
+            verbosity,
+            preserve_root
+        )
     }
 
 }
